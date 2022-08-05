@@ -1,0 +1,15 @@
+argparse
+xds-protos
+grpcio>=1.37.1
+grpcio-tools
+protobuf>=3.20.*
+googleapis-common-protos
+grpcio-reflection
+grpcio-health-checking
+acme
+josepy
+cryptography
+ratelimit
+flask
+asgiref
+hypercorn
