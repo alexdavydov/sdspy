@@ -6,9 +6,16 @@ from typing import Iterable
 import envoy.service.secret.v3.sds_pb2 as sds_pb2
 import grpc
 from envoy.config.core.v3.base_pb2 import DataSource
-from envoy.extensions.transport_sockets.tls.v3.common_pb2 import TlsCertificate
+from envoy.extensions.transport_sockets.tls.v3.common_pb2 import (
+    TlsCertificate,
+    CertificateValidationContext,
+)
 from envoy.extensions.transport_sockets.tls.v3.secret_pb2 import _SECRET, Secret
-from envoy.service.discovery.v3.discovery_pb2 import DiscoveryRequest, DiscoveryResponse
+from envoy.service.discovery.v3.discovery_pb2 import (
+    DiscoveryRequest,
+    DiscoveryResponse,
+    _DISCOVERYRESPONSE,
+)
 from envoy.service.secret.v3.sds_pb2_grpc import (
     SecretDiscoveryServiceServicer,
     add_SecretDiscoveryServiceServicer_to_server,
@@ -42,35 +49,37 @@ class SecretDiscoveryService(SecretDiscoveryServiceServicer):
         request_iterator: Iterable[DiscoveryRequest],
         context,
     ) -> DiscoveryResponse:
-        try:
-            message = next(request_iterator)
+        for message in request_iterator:
             logging.info(f"Received request for {message.resource_names}")
-        except StopIteration:
-            raise RuntimeError("Client disconnected")
-        # Perform HTTP-01 challenge, get cert
-        # certificate, private_key = http01(
-        #     domain=message.resource_names, email=self._email
-        # )
-        if "cert" in message.resource_names:
-            resource = Secret(
-                name="cert",
-                tls_certificate=TlsCertificate(
-                    certificate_chain=DataSource(inline_string=CERT),
-                    private_key=DataSource(inline_string=PRIVATEKEY),
-                ),
+
+            # Perform HTTP-01 challenge, get cert
+            # certificate, private_key = http01(
+            #     domain=message.resource_names, email=self._email
+            # )
+
+            if "cert" in message.resource_names:
+                resource = Secret(
+                    name="cert",
+                    tls_certificate=TlsCertificate(
+                        certificate_chain=DataSource(inline_string=CERT),
+                        private_key=DataSource(inline_string=PRIVATEKEY),
+                    ),
+                )
+            elif "validation_context" in message.resource_names:
+                resource = Secret(
+                    name="validation_context",
+                    validation_context=CertificateValidationContext(
+                        trusted_ca=DataSource(inline_string=ROOTCERT)
+                    ),
+                )
+            response = DiscoveryResponse(
+                type_url=f"{TYPE_PREFIX}{_SECRET.full_name}",
+                version_info="0",
             )
-        elif "validation_context" in message.resource_names:
-            resource = Secret(
-                name="validation_context",
-                tls_certificate=TlsCertificate(
-                    certificate_chain=DataSource(inline_string=ROOTCERT),
-                ),
-            )
-        secret = Any()
-        secret.Pack(resource)
-        yield DiscoveryResponse(
-            resources=[secret], type_url=f"{TYPE_PREFIX}{_SECRET.full_name}"
-        )
+            secret = Any()
+            secret.Pack(resource)
+            response.resources.append(secret)
+            yield response
 
 
 def _configure_secret_server(server: grpc.Server, port: int, email: str) -> None:

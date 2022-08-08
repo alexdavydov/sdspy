@@ -1,0 +1,79 @@
+static_resources:
+  listeners:
+  - name: httpbin-listener
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 10000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          route_config:
+            virtual_hosts:
+            - name: default
+              domains: ["*"]
+              routes:
+              - match: {prefix: "/"}
+                route:
+                  cluster: httpbin_cluster
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificate_sds_secret_configs:
+            - name: cert
+              sds_config:
+                resource_api_version: V3
+                api_config_source:
+                  api_type: GRPC
+                  transport_api_version: V3
+                  grpc_services:
+                    envoy_grpc:
+                      cluster_name: sds_server_mtls
+            validation_context_sds_secret_config:
+              name: validation_context
+              sds_config:
+                resource_api_version: V3
+                api_config_source:
+                  api_type: GRPC
+                  transport_api_version: V3
+                  grpc_services:
+                    envoy_grpc:
+                      cluster_name: sds_server_mtls
+  clusters:
+  - name: httpbin_cluster
+    connect_timeout: 0.25s
+    type: LOGICAL_DNS
+    lb_policy: round_robin
+    load_assignment:
+      cluster_name: httpbin
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    protocol: TCP
+                    address: httpbin.org
+                    port_value: 443
+  - name: sds_server_mtls
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options:
+            connection_keepalive:
+              interval: 30s
+              timeout: 5s
+    load_assignment:
+      cluster_name: sds_server_mtls
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 50051
